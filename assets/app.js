@@ -1,15 +1,25 @@
 
 // app App.
-const App = {
-	devices: [],
-	socket: null,
 
-	connect: function() {
-		console.log(this)
+function App(options) {
+  this.mouseAreaElement = options.mouseAreaElement;
+
+  this.devices = [];
+  this.socket = null;
+
+	this.blockSendingMouseMove = false;
+	this.mouseMoveDelta = null;
+	this.dragHandlerId = null;
+
+  this.connect = function() {
 		this.socket = new WebSocket("ws://localhost:8000/ws");
-	},
 
-	addDevice: function (device) {
+    this.socket.addEventListener("error", (event) => {
+      console.error("WebSocket error:", event);
+    });
+	};
+
+  this.addDevice = function (device) {
 		this.devices.push({
 			device_name: device.device_name,
 			device_id: device.device_id,
@@ -17,11 +27,13 @@ const App = {
 
 		const selectbox = document.querySelector('#deviceSelectbox');
 		selectbox.options.add(new Option(device.device_name, device.device_id));
-	},
-	getTimestamp: function () {
+	};
+
+  this.getTimestamp = function () {
 		return Date.now();
-	},
-	sendPayload: function(options) {
+	};
+
+  this.sendPayload = function(options) {
 		const selectbox = document.querySelector('#deviceSelectbox');
 		const deviceId = selectbox.value;
 
@@ -34,78 +46,69 @@ const App = {
 			device_id: deviceId,
 			payload: options.payload
 		}));
-	},
+	};
 
-	blockSendingMouseMove: false,
-	mouseMoveDelta: null,
-	dragHandlerId: null,
-};
-App.connect = App.connect.bind(App);
-App.addDevice = App.addDevice.bind(App);
-App.getTimestamp = App.getTimestamp.bind(App);
-App.sendPayload = App.sendPayload.bind(App);
-
-App.connect();
-
-const mouseAreaElement = document.querySelector('#mouseArea');
-
-function startSingleHold() {
-	App.sendPayload({
-		payload: {
-			id: App.getTimestamp(),
-			type: "kdeconnect.mousepad.request",
-			body: {
-				singlehold: true,
-			}
-		}
-	});
-
-	App.blockSendingMouseMove = false;
-
-	if (App.mouseMoveDelta !== null) {
-		App.sendPayload({
+  this.startSingleHold = function () {
+		this.sendPayload({
 			payload: {
-				id: App.getTimestamp(),
+				id: this.getTimestamp(),
 				type: "kdeconnect.mousepad.request",
 				body: {
-					dx: App.mouseMoveDelta.dx,
-					dy: App.mouseMoveDelta.dy,
+					singlehold: true,
 				}
 			}
 		});
-		App.mouseMoveDelta = null;
-	}
-}
 
-mouseAreaElement.addEventListener("mousedown", event => {
-	if (document.pointerLockElement !== mouseAreaElement) {
-		mouseAreaElement.focus();
+		this.blockSendingMouseMove = false;
+
+		if (this.mouseMoveDelta !== null) {
+			this.flushMouseMoveDelta();
+		}
+	};
+
+  this.flushMouseMoveDelta = function() {
+		this.sendPayload({
+			payload: {
+				id: this.getTimestamp(),
+				type: "kdeconnect.mousepad.request",
+				body: {
+					dx: app.mouseMoveDelta.dx,
+					dy: app.mouseMoveDelta.dy,
+				}
+			}
+		});
+		this.mouseMoveDelta = null;
+	};
+};
+
+const app = new App({
+  mouseAreaElement: document.querySelector('#mouseArea'),
+});
+app.connect();
+
+app.mouseAreaElement.addEventListener("click", event => {
+	if (document.pointerLockElement !== app.mouseAreaElement) {
+		app.mouseAreaElement.focus();
+		// Sometimes warns with:
+		// Request for pointer lock was denied because the document is not focused.
+		// Above .focus() doesn't seem to help.
 		event.target.requestPointerLock();
 	}
-
-	App.blockSendingMouseMove = true;
-	App.dragHandlerId = setTimeout(() => {
-		startSingleHold();
+});
+app.mouseAreaElement.addEventListener("mousedown", event => {
+	app.blockSendingMouseMove = true;
+	app.dragHandlerId = setTimeout(() => {
+		app.startSingleHold();
 	}, 200);
 });
-mouseAreaElement.addEventListener("mouseup", event => {
-	if (App.mouseMoveDelta !== null) {
-		// maybe explicitly NOT do this? Reducing cursor-stutter when quickly clicking?
-		App.sendPayload({
-			payload: {
-				id: App.getTimestamp(),
-				type: "kdeconnect.mousepad.request",
-				body: {
-					dx: App.mouseMoveDelta.dx,
-					dy: App.mouseMoveDelta.dy,
-				}
-			}
-		});
+app.mouseAreaElement.addEventListener("mouseup", event => {
+	if (app.mouseMoveDelta !== null) {
+		app.flushMouseMoveDelta();
 	}
-	if (App.dragHandlerId !== null) {
-		clearTimeout(App.dragHandlerId);
+	if (app.dragHandlerId !== null) {
+		clearTimeout(app.dragHandlerId);
 	}
-	App.blockSendingMouseMove = false;
+	app.blockSendingMouseMove = false;
 
 	const body = {};
 	switch (event.button) {
@@ -118,58 +121,99 @@ mouseAreaElement.addEventListener("mouseup", event => {
 			break;
 	}
 
-	App.sendPayload({
+	app.sendPayload({
 		payload: {
-			id: App.getTimestamp(),
+			id: app.getTimestamp(),
 			type: "kdeconnect.mousepad.request",
 			body: body
 		}
 	});
 });
 
+// See https://github.com/KDE/kdeconnect-android/blob/master/src/org/kde/kdeconnect/Plugins/MousePadPlugin/KeyListenerView.java.
 
-mouseAreaElement.addEventListener("keydown", event => {
-	if (document.pointerLockElement !== mouseAreaElement) {
+app.specialKeysMap = {
+	8: 1, // DEL
+	9: 2, // TAB
+	13: 12, // ENTER
+	37: 4, // DPAD_LEFT
+	38: 5, // DPAD_UP
+	39: 6, // DPAD_RIGHT
+	40: 7, // DPAD_DOWN
+	33: 8, // PAGE_UP
+	34: 9, // PAGE_DOWN
+	36: 10, // MOVE_HOME
+	35: 11, // MOVE_END
+	'KEYCODE_NUMPAD_ENTER': 12, // NUMPAD_ENTER
+	46: 13, // FORWARD_DEL
+	27: 14, // ESCAPE
+	'KEYCODE_SYSRQ': 15, // SYSRQ
+	'KEYCODE_SCROLL_LOCK': 16, // SCROLL_LOCK
+	112: 21, // F1
+	113: 22, // F2
+	114: 23, // F3
+	115: 24, // F4
+	116: 25, // F5
+	117: 26, // F6
+	118: 27, // F7
+	119: 28, // F8
+	120: 29, // F9
+	121: 30, // F10
+	122: 31, // F11
+	123: 32, // F12 source from kdeconnect-android says 21 in comment?
+};
+
+app.mouseAreaElement.addEventListener("keydown", event => {
+	if (document.pointerLockElement !== app.mouseAreaElement) {
 		return;
 	}
 
-	console.log(event);
+	const body = {};
+	if (app.specialKeysMap[event.keyCode]) {
+		body.specialKey = app.specialKeysMap[event.keyCode];
+	} else {
+		switch (event.keyCode) {
+			// NOT DO THIS BY DEFAULT. Check for a-z A-Z and only allow what we know, essentially whitelisting this bs.
+			default:
+				body.key = event.key;
+		}
+	}
 
-	App.sendPayload({
+	console.log(event);
+	console.log(body);
+
+	app.sendPayload({
 		payload: {
-			id: App.getTimestamp(),
+			id: app.getTimestamp(),
 			type: "kdeconnect.mousepad.request",
-			body: {
-				key: event.key,
-			}
+			body: body,
 		}
 	});
 });
 
-mouseAreaElement.addEventListener("mousemove", event => {
-	if (document.pointerLockElement !== mouseAreaElement) {
+app.mouseAreaElement.addEventListener("mousemove", event => {
+	if (document.pointerLockElement !== app.mouseAreaElement) {
 		return;
 	}
 
-	if (App.blockSendingMouseMove) {
-		console.log(`mousemove non blocking`);
-		if (App.mouseMoveDelta === null) {
-			App.mouseMoveDelta = {
+	if (app.blockSendingMouseMove) {
+		if (app.mouseMoveDelta === null) {
+			app.mouseMoveDelta = {
 				dx: event.movementX,
 				dy: event.movementY,
 			};
 		} else {
-			App.mouseMoveDelta.dx += event.movementX;
-			App.mouseMoveDelta.dy += event.movementY;
+			app.mouseMoveDelta.dx += event.movementX;
+			app.mouseMoveDelta.dy += event.movementY;
 		}
-		if (App.mouseMoveDelta.dx > 10 || App.mouseMoveDelta.dy > 10) {
-			startSingleHold();
+		if (app.mouseMoveDelta.dx > 10 || app.mouseMoveDelta.dy > 10) {
+			clearTimeout(app.dragHandlerId);
+			app.startSingleHold();
 		}
 	} else {
-		console.log(`mousemove blocking`);
-		App.sendPayload({
+		app.sendPayload({
 			payload: {
-				id: App.getTimestamp(),
+				id: app.getTimestamp(),
 				type: "kdeconnect.mousepad.request",
 				body: {
 					dx: event.movementX,
@@ -181,21 +225,21 @@ mouseAreaElement.addEventListener("mousemove", event => {
 });
 
 // Connection opened
-App.socket.addEventListener("open", (event) => {
+app.socket.addEventListener("open", (event) => {
 	const websocketStatus = document.querySelector('#websocketStatus');
 	websocketStatus.innerHTML = 'Open';
 });
-App.socket.addEventListener("close", (event) => {
+app.socket.addEventListener("close", (event) => {
 	const websocketStatus = document.querySelector('#websocketStatus');
 	websocketStatus.innerHTML = 'Closed';
 });
 
 // Listen for messages
-App.socket.addEventListener("message", (event) => {
+app.socket.addEventListener("message", (event) => {
 	const data = JSON.parse(event.data);
 	switch (data.type) {
 		case "device_connected":
-			App.addDevice(data.data);
+			app.addDevice(data.data);
 			break;
 		default:
 			console.log("Message with unknown type from server: ", data);
