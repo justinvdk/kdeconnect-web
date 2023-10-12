@@ -1,0 +1,2 @@
+sanic==23.6.0
+pykdeconnect @ git+https://github.com/justinvdk/pykdeconnect.git
