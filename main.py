@@ -19,6 +19,7 @@ from pykdeconnect.helpers import get_timestamp, keyboard_interrupt
 from pykdeconnect.payloads import Payload
 from pykdeconnect.plugin import Plugin
 from pykdeconnect.plugin_registry import PluginRegistry
+from pykdeconnect.plugins.ping import PingReceiverPlugin
 from pykdeconnect.storage import FileStorage
 
 from functools import partial
@@ -52,6 +53,11 @@ def kdeconnect_client_process(queue_to, queue_from):
             plugin_registry
         )
 
+        def on_ping_received_callback(device):
+            async def on_ping_received_callback_imp():
+                queue_from.put(f'{{"type":"received_ping","data":{{"device_id":"{device.device_id}","device_name":"{device.device_name}"}}}}')
+            return on_ping_received_callback_imp
+
         # TODO: Ask (web)client.
         async def on_pairing_request(_: KdeConnectDevice) -> bool:
             will_pair = False
@@ -59,9 +65,11 @@ def kdeconnect_client_process(queue_to, queue_from):
             return will_pair
 
         async def on_register_device_connected(device: KdeConnectDevice) -> bool:
+            ping_receiver_plugin = plugin_registry.get_plugin(device, PingReceiverPlugin)
+            ping_receiver_plugin.register_ping_callback(on_ping_received_callback(device))
+
             # Needs to go to ws.
             queue_from.put(f'{{"type":"device_connected","data":{{"device_id":"{device.device_id}","device_name":"{device.device_name}"}}}}')
-            # await ws.send(f'{{"type":"device_connected","data":{{"device_id":"{device.device_id}","device_name":"{device.device_name}"}}}}')
 
         client.set_pairing_callback(on_pairing_request)
         client._device_manager.register_device_connected_callback(on_register_device_connected)
