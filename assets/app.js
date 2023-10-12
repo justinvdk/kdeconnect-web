@@ -2,14 +2,20 @@
 // app state.
 const App = {
 	devices: [],
-	socket: new WebSocket("ws://localhost:8000/ws"),
+	socket: null,
+
+  connect: function() {
+    console.log(this)
+    this.socket = new WebSocket("ws://localhost:8000/ws");
+  },
+
 	addDevice: function (device) {
 		this.devices.push({
 			device_name: device.device_name,
 			device_id: device.device_id,
 		});
 
-		const selectbox = document.querySelector('#device_selectbox');
+		const selectbox = document.querySelector('#deviceSelectbox');
 		selectbox.options.add(new Option(device.device_name, device.device_id));
 	},
 	getTimestamp: function () {
@@ -23,12 +29,14 @@ const App = {
 		}));
 	},
 };
+App.connect = App.connect.bind(App);
 App.addDevice = App.addDevice.bind(App);
 App.getTimestamp = App.getTimestamp.bind(App);
 App.sendPayload = App.sendPayload.bind(App);
+App.connect();
 
 document.querySelector('#buttonLeftClick').addEventListener("click", event => {
-	const selectbox = document.querySelector('#device_selectbox');
+	const selectbox = document.querySelector('#deviceSelectbox');
 	const deviceId = selectbox.value;
 
 	App.sendPayload(deviceId, {
@@ -40,7 +48,7 @@ document.querySelector('#buttonLeftClick').addEventListener("click", event => {
 	});
 });
 document.querySelector('#buttonMiddleClick').addEventListener("click", event => {
-	const selectbox = document.querySelector('#device_selectbox');
+	const selectbox = document.querySelector('#deviceSelectbox');
 	const deviceId = selectbox.value;
 
 	App.sendPayload(deviceId, {
@@ -52,7 +60,7 @@ document.querySelector('#buttonMiddleClick').addEventListener("click", event => 
 	});
 });
 document.querySelector('#buttonRightClick').addEventListener("click", event => {
-	const selectbox = document.querySelector('#device_selectbox');
+	const selectbox = document.querySelector('#deviceSelectbox');
 	const deviceId = selectbox.value;
 
 	App.sendPayload(deviceId, {
@@ -65,9 +73,8 @@ document.querySelector('#buttonRightClick').addEventListener("click", event => {
 });
 const mouseAreaElement = document.querySelector('#mouseArea');
 mouseAreaElement.addEventListener("click", event => {
-	console.log('click')
 	if (document.pointerLockElement === mouseAreaElement) {
-		const selectbox = document.querySelector('#device_selectbox');
+		const selectbox = document.querySelector('#deviceSelectbox');
 		const deviceId = selectbox.value;
 
 		App.sendPayload(deviceId, {
@@ -84,7 +91,7 @@ mouseAreaElement.addEventListener("click", event => {
 mouseAreaElement.addEventListener("keydown", event => {
 	console.log(event);
 
-	const selectbox = document.querySelector('#device_selectbox');
+	const selectbox = document.querySelector('#deviceSelectbox');
 	const deviceId = selectbox.value;
 
 	if (document.pointerLockElement !== mouseAreaElement) {
@@ -100,7 +107,7 @@ mouseAreaElement.addEventListener("keydown", event => {
 	});
 });
 mouseAreaElement.addEventListener("mousemove", event => {
-	const selectbox = document.querySelector('#device_selectbox');
+	const selectbox = document.querySelector('#deviceSelectbox');
 	const deviceId = selectbox.value;
 
 	if (document.pointerLockElement !== mouseAreaElement) {
@@ -119,6 +126,12 @@ mouseAreaElement.addEventListener("mousemove", event => {
 
 // Connection opened
 App.socket.addEventListener("open", (event) => {
+	const websocketStatus = document.querySelector('#websocketStatus');
+  websocketStatus.innerHTML = 'Open';
+});
+App.socket.addEventListener("close", (event) => {
+	const websocketStatus = document.querySelector('#websocketStatus');
+  websocketStatus.innerHTML = 'Closed';
 });
 
 // Listen for messages
