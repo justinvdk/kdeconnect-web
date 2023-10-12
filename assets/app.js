@@ -267,6 +267,23 @@ app.mouseAreaElement.addEventListener("mousemove", event => {
     });
   }
 });
+app.mouseAreaElement.addEventListener("wheel", event => {
+  if (document.pointerLockElement !== app.mouseAreaElement) {
+    return;
+  }
+
+  app.sendPayload({
+    payload: {
+      id: app.getTimestamp(),
+      type: "kdeconnect.mousepad.request",
+      body: {
+        scroll: true,
+        dx: event.deltaX,
+        dy: -event.deltaY,
+      }
+    }
+  });
+});
 
 // Connection opened
 app.socket.addEventListener("open", (event) => {
