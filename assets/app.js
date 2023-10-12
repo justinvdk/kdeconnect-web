@@ -1,13 +1,13 @@
 
-// app state.
+// app App.
 const App = {
 	devices: [],
 	socket: null,
 
-  connect: function() {
-    console.log(this)
-    this.socket = new WebSocket("ws://localhost:8000/ws");
-  },
+	connect: function() {
+		console.log(this)
+		this.socket = new WebSocket("ws://localhost:8000/ws");
+	},
 
 	addDevice: function (device) {
 		this.devices.push({
@@ -21,117 +21,173 @@ const App = {
 	getTimestamp: function () {
 		return Date.now();
 	},
-	sendPayload: function (deviceId, payload) {
+	sendPayload: function(options) {
+		const selectbox = document.querySelector('#deviceSelectbox');
+		const deviceId = selectbox.value;
+
+		if (options.deviceId) {
+			deviceId = options.deviceId;
+		}
+
 		this.socket.send(JSON.stringify({
 			type: 'payload',
 			device_id: deviceId,
-			payload: payload
+			payload: options.payload
 		}));
 	},
+
+	blockSendingMouseMove: false,
+	mouseMoveDelta: null,
+	dragHandlerId: null,
 };
 App.connect = App.connect.bind(App);
 App.addDevice = App.addDevice.bind(App);
 App.getTimestamp = App.getTimestamp.bind(App);
 App.sendPayload = App.sendPayload.bind(App);
+
 App.connect();
 
-document.querySelector('#buttonLeftClick').addEventListener("click", event => {
-	const selectbox = document.querySelector('#deviceSelectbox');
-	const deviceId = selectbox.value;
-
-	App.sendPayload(deviceId, {
-		id: App.getTimestamp(),
-		type: "kdeconnect.mousepad.request",
-		body: {
-			singleclick: true,
-		}
-	});
-});
-document.querySelector('#buttonMiddleClick').addEventListener("click", event => {
-	const selectbox = document.querySelector('#deviceSelectbox');
-	const deviceId = selectbox.value;
-
-	App.sendPayload(deviceId, {
-		id: App.getTimestamp(),
-		type: "kdeconnect.mousepad.request",
-		body: {
-			middleclick: true,
-		}
-	});
-});
-document.querySelector('#buttonRightClick').addEventListener("click", event => {
-	const selectbox = document.querySelector('#deviceSelectbox');
-	const deviceId = selectbox.value;
-
-	App.sendPayload(deviceId, {
-		id: App.getTimestamp(),
-		type: "kdeconnect.mousepad.request",
-		body: {
-			rightclick: true,
-		}
-	});
-});
 const mouseAreaElement = document.querySelector('#mouseArea');
-mouseAreaElement.addEventListener("click", event => {
-	if (document.pointerLockElement === mouseAreaElement) {
-		const selectbox = document.querySelector('#deviceSelectbox');
-		const deviceId = selectbox.value;
 
-		App.sendPayload(deviceId, {
+function startSingleHold() {
+	App.sendPayload({
+		payload: {
 			id: App.getTimestamp(),
 			type: "kdeconnect.mousepad.request",
 			body: {
-				singleclick: true,
+				singlehold: true,
+			}
+		}
+	});
+
+	App.blockSendingMouseMove = false;
+
+	if (App.mouseMoveDelta !== null) {
+		App.sendPayload({
+			payload: {
+				id: App.getTimestamp(),
+				type: "kdeconnect.mousepad.request",
+				body: {
+					dx: App.mouseMoveDelta.dx,
+					dy: App.mouseMoveDelta.dy,
+				}
 			}
 		});
-	} else {
+		App.mouseMoveDelta = null;
+	}
+}
+
+mouseAreaElement.addEventListener("mousedown", event => {
+	if (document.pointerLockElement !== mouseAreaElement) {
+		mouseAreaElement.focus();
 		event.target.requestPointerLock();
 	}
+
+	App.blockSendingMouseMove = true;
+	App.dragHandlerId = setTimeout(() => {
+		startSingleHold();
+	}, 200);
 });
+mouseAreaElement.addEventListener("mouseup", event => {
+	if (App.mouseMoveDelta !== null) {
+		// maybe explicitly NOT do this? Reducing cursor-stutter when quickly clicking?
+		App.sendPayload({
+			payload: {
+				id: App.getTimestamp(),
+				type: "kdeconnect.mousepad.request",
+				body: {
+					dx: App.mouseMoveDelta.dx,
+					dy: App.mouseMoveDelta.dy,
+				}
+			}
+		});
+	}
+	if (App.dragHandlerId !== null) {
+		clearTimeout(App.dragHandlerId);
+	}
+	App.blockSendingMouseMove = false;
+
+	const body = {};
+	switch (event.button) {
+		case 2:
+			body.rightclick = true;
+			break;
+		case 0:
+		default:
+			body.singleclick = true;
+			break;
+	}
+
+	App.sendPayload({
+		payload: {
+			id: App.getTimestamp(),
+			type: "kdeconnect.mousepad.request",
+			body: body
+		}
+	});
+});
+
+
 mouseAreaElement.addEventListener("keydown", event => {
+	if (document.pointerLockElement !== mouseAreaElement) {
+		return;
+	}
+
 	console.log(event);
 
-	const selectbox = document.querySelector('#deviceSelectbox');
-	const deviceId = selectbox.value;
-
-	if (document.pointerLockElement !== mouseAreaElement) {
-		return;
-	}
-
-	App.sendPayload(deviceId, {
-		id: App.getTimestamp(),
-		type: "kdeconnect.mousepad.request",
-		body: {
-			key: event.key,
+	App.sendPayload({
+		payload: {
+			id: App.getTimestamp(),
+			type: "kdeconnect.mousepad.request",
+			body: {
+				key: event.key,
+			}
 		}
 	});
 });
-mouseAreaElement.addEventListener("mousemove", event => {
-	const selectbox = document.querySelector('#deviceSelectbox');
-	const deviceId = selectbox.value;
 
+mouseAreaElement.addEventListener("mousemove", event => {
 	if (document.pointerLockElement !== mouseAreaElement) {
 		return;
 	}
 
-	App.sendPayload(deviceId, {
-		id: App.getTimestamp(),
-		type: "kdeconnect.mousepad.request",
-		body: {
-			dx: event.movementX,
-			dy: event.movementY,
+	if (App.blockSendingMouseMove) {
+		console.log(`mousemove non blocking`);
+		if (App.mouseMoveDelta === null) {
+			App.mouseMoveDelta = {
+				dx: event.movementX,
+				dy: event.movementY,
+			};
+		} else {
+			App.mouseMoveDelta.dx += event.movementX;
+			App.mouseMoveDelta.dy += event.movementY;
 		}
-	});
+		if (App.mouseMoveDelta.dx > 10 || App.mouseMoveDelta.dy > 10) {
+			startSingleHold();
+		}
+	} else {
+		console.log(`mousemove blocking`);
+		App.sendPayload({
+			payload: {
+				id: App.getTimestamp(),
+				type: "kdeconnect.mousepad.request",
+				body: {
+					dx: event.movementX,
+					dy: event.movementY,
+				}
+			}
+		});
+	}
 });
 
 // Connection opened
 App.socket.addEventListener("open", (event) => {
 	const websocketStatus = document.querySelector('#websocketStatus');
-  websocketStatus.innerHTML = 'Open';
+	websocketStatus.innerHTML = 'Open';
 });
 App.socket.addEventListener("close", (event) => {
 	const websocketStatus = document.querySelector('#websocketStatus');
-  websocketStatus.innerHTML = 'Closed';
+	websocketStatus.innerHTML = 'Closed';
 });
 
 // Listen for messages

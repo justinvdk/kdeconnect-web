@@ -77,16 +77,10 @@ def kdeconnect_client_process(queue_to, queue_from):
 
                     device = client._device_manager.get_device(msg_dict['device_id'])
 
-                    # TODO: Implement the plugin abstraction.
-                    # mousepad_plugin = client.plugin_registry.get_plugin(device, MousepadPlugin)
-                    device.send_payload(msg_dict['payload'])
-                    # device.send_payload({
-                    #     "id": get_timestamp(),
-                    #     "type": "kdeconnect.mousepad.request",
-                    #     "body": {
-                    #         "singleclick": True
-                    #     }
-                    # })
+                    if device is None:
+                        print(f'Trying to send payload to device with id {msg_dict["device_id"]}, but was not found.')
+                    else:
+                        device.send_payload(msg_dict['payload'])
                 except Empty:
                     pass
                 await asyncio.sleep(0)
@@ -96,7 +90,11 @@ def kdeconnect_client_process(queue_to, queue_from):
 
         await client.stop()
 
-    asyncio.run(kdeconnect_client_process_async())
+    try:
+        asyncio.run(kdeconnect_client_process_async())
+    except KeyboardInterrupt:
+        pass
+
 
 def create_app() -> Sanic:
     current_directory = os.path.dirname(os.path.realpath(__file__))
