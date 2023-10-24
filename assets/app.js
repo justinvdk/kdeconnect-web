@@ -176,10 +176,6 @@ app.mouseAreaElement.addEventListener("click", event => {
 		const selectbox = document.querySelector('#deviceSelectbox');
     const deviceId = selectbox.value;
 
-    if (options.deviceId) {
-      deviceId = options.deviceId;
-    }
-
 		if (!deviceId) {
 			return;
 		}
