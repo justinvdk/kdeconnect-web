@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 import os
@@ -42,16 +43,17 @@ class MousepadPlugin(Plugin):
     async def handle_payload(self, payload: Payload) -> None:
         assert False
 
-def kdeconnect_client_process(queue_to, queue_from):
+def kdeconnect_client_process(queue_to, queue_from, config_path):
     async def kdeconnect_client_process_async():
         plugin_registry = PluginRegistry()
         plugin_registry.register_plugin(MousepadPlugin)
         client = KdeConnectClient(
             'Web',
             KdeConnectDeviceType('unknown'),
-            FileStorage(Path.home() / ".config" / "pykdeconnect"),
+            FileStorage(config_path),
             plugin_registry
         )
+        pairing_requests = {}
 
         def on_ping_received_callback(device):
             async def on_ping_received_callback_imp():
@@ -59,10 +61,24 @@ def kdeconnect_client_process(queue_to, queue_from):
             return on_ping_received_callback_imp
 
         # TODO: Ask (web)client.
-        async def on_pairing_request(_: KdeConnectDevice) -> bool:
-            will_pair = False
-            print(f'on_pairing_request called. Returning {False}')
-            return will_pair
+        async def on_pairing_request(device: KdeConnectDevice) -> bool:
+            print(f'on_pairing_request called asking client(s).')
+
+            queue_from.put(f'{{"type":"pair_request","data":{{"device_id":"{device.device_id}","device_name":"{device.device_name}"}}}}')
+
+            try:
+                while True:
+                    if device.device_id in pairing_requests:
+                        will_pair = pairing_requests[device.device_id]
+                        print(f'on_pairing_request called and answered. Returning {will_pair}')
+                        return will_pair
+
+                    await asyncio.sleep(0)
+            except (KeyboardInterrupt, CancelledError):
+                return False
+
+            print(f'on_pairing_request called. Returning {False}. Should not really come here.')
+            return False
 
         async def on_register_device_connected(device: KdeConnectDevice) -> bool:
             ping_receiver_plugin = plugin_registry.get_plugin(device, PingReceiverPlugin)
@@ -76,19 +92,21 @@ def kdeconnect_client_process(queue_to, queue_from):
 
         await client.start()
 
-
-        # # queue?
+        # queue?
         try:
             while True:
                 try:
                     msg_dict = queue_to.get(block=False)
 
-                    device = client._device_manager.get_device(msg_dict['device_id'])
+                    if msg_dict['type'] == 'payload':
+                        device = client._device_manager.get_device(msg_dict['device_id'])
+                        if device is None:
+                            print(f'Trying to send payload to device with id {msg_dict["device_id"]}, but was not found.')
+                        else:
+                            device.send_payload(msg_dict['payload'])
+                    elif msg_dict['type'] == 'pair_request_answer':
+                        pairing_requests[msg_dict['device_id']] = msg_dict['payload']['accepted']
 
-                    if device is None:
-                        print(f'Trying to send payload to device with id {msg_dict["device_id"]}, but was not found.')
-                    else:
-                        device.send_payload(msg_dict['payload'])
                 except Empty:
                     pass
                 await asyncio.sleep(0)
@@ -147,11 +165,14 @@ def create_app() -> Sanic:
                 if msg is not None:
                     msg_dict = json.loads(msg)
 
-                    if msg_dict['type'] == 'payload':
+                    if msg_dict['type'] in ['payload', 'pair_request_answer']:
                         queue_to.put({
+                            'type': msg_dict['type'],
                             'device_id': msg_dict['device_id'],
                             'payload': msg_dict['payload'],
                         })
+                    else:
+                        print(f"unknown message type: {msg_dict['type']}.")
 
                 await asyncio.sleep(0)
         except asyncio.CancelledError as e:
@@ -164,10 +185,10 @@ def create_app() -> Sanic:
 
     @app.main_process_ready
     async def main_process_ready(app: Sanic, _):
-        # app.manager.manage(<name>, <callable>, <kwargs>)
         app.manager.manage("KDEConnectClient", kdeconnect_client_process, {
             "queue_to": app.shared_ctx.kdeconnect_client_queue_to,
-            "queue_from":  app.shared_ctx.kdeconnect_client_queue_from
+            "queue_from":  app.shared_ctx.kdeconnect_client_queue_from,
+            "config_path": app.config.config_path
         })
     return app
 
@@ -182,4 +203,18 @@ if __name__ == "__main__":
     # app.run(single_process=True, debug=True)
     # app.run(single_process=False, debug=True)
     # app.run(single_process=False, dev=True, motd=False)
-    app.run(single_process=False, dev=False, motd=False)
+
+    parser = argparse.ArgumentParser(
+        description='KDE Connect web an app that allows your devices to communicate (eg: your phone and your computer).'
+    )
+    parser.add_argument("-p", "--port", dest="port", type=int, choices=range(1, 2 ** 16), help="Port to serve on (default 8000)", default=8000)
+    parser.add_argument("-H", "--host", dest="host", help="Host address (default: 127.0.0.1", default="0.0.0.0")
+    parser.add_argument("-c", "--config", dest="config_path", help="path to config (default: $HOME/.config/kdeconnect-web)", default=Path.home() / ".config" / "kdeconnect-web")
+    args = parser.parse_args(sys.argv[1:])
+
+    config_path = args.config_path
+    if not isinstance(config_path, Path):
+        config_path = Path(config_path)
+
+    app.config.config_path = config_path
+    app.run(single_process=False, dev=False, motd=False, host=args.host, port=args.port)

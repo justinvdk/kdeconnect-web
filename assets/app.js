@@ -13,6 +13,7 @@ function App(options) {
   this.mouseAreaElement = options.mouseAreaElement;
   this.sendPingButton = options.sendPingButton;
   this.messagesContainer = options.messagesContainer;
+  this.pairRequestContainer = options.pairRequestContainer;
 
   this.onSendPingButtonClick = function (event) {
     this.sendPayload({
@@ -71,6 +72,36 @@ function App(options) {
     }, 5000);
   };
 
+	this.receivedPairRequest = function (data) {
+    const pairRequestWrapperElement = document.createElement('div');
+		pairRequestWrapperElement.id = `pair-request-${data.device_id}`;
+    pairRequestWrapperElement.innerText = `Pair request from ${data.device_name} (${data.device_id}).`;
+
+		const acceptButton = document.createElement('button');
+    acceptButton.innerText = "Accept";
+		acceptButton.onclick = () => this.answerPairRequest(data.device_id, true);
+    pairRequestWrapperElement.appendChild(acceptButton);
+		const rejectButton = document.createElement('button');
+    rejectButton.innerText = "Reject";
+		rejectButton.onclick = () => this.answerPairRequest(data.device_id, false);
+    pairRequestWrapperElement.appendChild(rejectButton);
+
+    this.pairRequestContainer.prepend(pairRequestWrapperElement);
+	}
+
+	this.answerPairRequest = function(deviceId, accepted) {
+		const pairRequestWrapperElement = this.pairRequestContainer.querySelector(`#pair-request-${deviceId}`);
+		this.pairRequestContainer.removeChild(pairRequestWrapperElement);
+
+		this.socket.send(JSON.stringify({
+      type: 'pair_request_answer',
+      device_id: deviceId,
+      payload: {
+				accepted: accepted
+			}
+    }));
+	}
+
   this.getTimestamp = function () {
     return Date.now();
   };
@@ -82,6 +113,10 @@ function App(options) {
     if (options.deviceId) {
       deviceId = options.deviceId;
     }
+
+		if (!deviceId) {
+			return;
+		}
 
     this.socket.send(JSON.stringify({
       type: 'payload',
@@ -127,6 +162,7 @@ const app = new App({
   mouseAreaElement: document.querySelector('#mouseArea'),
   sendPingButton: document.querySelector('#sendPingButton'),
   messagesContainer: document.querySelector('#messages'),
+  pairRequestContainer: document.querySelector('#pairRequestContainer'),
 });
 app.connect();
 
@@ -136,6 +172,18 @@ app.mouseAreaElement.addEventListener("click", event => {
     // Sometimes warns with:
     // Request for pointer lock was denied because the document is not focused.
     // Above .focus() doesn't seem to help.
+
+		const selectbox = document.querySelector('#deviceSelectbox');
+    const deviceId = selectbox.value;
+
+    if (options.deviceId) {
+      deviceId = options.deviceId;
+    }
+
+		if (!deviceId) {
+			return;
+		}
+
     event.target.requestPointerLock();
   }
 });
@@ -299,6 +347,9 @@ app.socket.addEventListener("close", (event) => {
 app.socket.addEventListener("message", (event) => {
   const data = JSON.parse(event.data);
   switch (data.type) {
+    case "pair_request":
+      app.receivedPairRequest(data.data);
+      break;
     case "device_connected":
       app.addDevice(data.data);
       break;
