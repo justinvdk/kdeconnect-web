@@ -7,4 +7,4 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     volumes:
-      - /data/services/kdeconnect-web/data:/data
+      - kdeconnect-web-config:/data
