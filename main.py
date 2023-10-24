@@ -43,7 +43,7 @@ class MousepadPlugin(Plugin):
     async def handle_payload(self, payload: Payload) -> None:
         assert False
 
-def kdeconnect_client_process(queue_to, queue_from, config_path):
+def kdeconnect_client_process(queue_to, queue_from, config_path, accept_all):
     async def kdeconnect_client_process_async():
         plugin_registry = PluginRegistry()
         plugin_registry.register_plugin(MousepadPlugin)
@@ -62,6 +62,11 @@ def kdeconnect_client_process(queue_to, queue_from, config_path):
 
         # TODO: Ask (web)client.
         async def on_pairing_request(device: KdeConnectDevice) -> bool:
+            # TODO: Fix pair requests.
+            if True:
+                print(f'on_pairing_request called NOT asking client(s); just returning: {accept_all}.')
+                return accept_all
+
             print(f'on_pairing_request called asking client(s).')
 
             queue_from.put(f'{{"type":"pair_request","data":{{"device_id":"{device.device_id}","device_name":"{device.device_name}"}}}}')
@@ -188,7 +193,8 @@ def create_app() -> Sanic:
         app.manager.manage("KDEConnectClient", kdeconnect_client_process, {
             "queue_to": app.shared_ctx.kdeconnect_client_queue_to,
             "queue_from":  app.shared_ctx.kdeconnect_client_queue_from,
-            "config_path": app.config.config_path
+            "config_path": app.config.config_path,
+            "accept_all": app.config.accept_all
         })
     return app
 
@@ -207,9 +213,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description='KDE Connect web an app that allows your devices to communicate (eg: your phone and your computer).'
     )
-    parser.add_argument("-p", "--port", dest="port", type=int, choices=range(1, 2 ** 16), help="Port to serve on (default 8000)", default=8000)
-    parser.add_argument("-H", "--host", dest="host", help="Host address (default: 127.0.0.1", default="0.0.0.0")
-    parser.add_argument("-c", "--config", dest="config_path", help="path to config (default: $HOME/.config/kdeconnect-web)", default=Path.home() / ".config" / "kdeconnect-web")
+    parser.add_argument("-p", "--port", dest="port", type=int, choices=range(1, 2 ** 16), help="Port to serve on (default 8000).", default=8000)
+    parser.add_argument("-H", "--host", dest="host", help="Host address (default: 127.0.0.1).", default="0.0.0.0")
+    parser.add_argument("-c", "--config", dest="config_path", help="path to config (default: $HOME/.config/kdeconnect-web).", default=Path.home() / ".config" / "kdeconnect-web")
+    parser.add_argument('--accept-all', dest="accept_all", help="If enabled, accept all pairing requests.", default=False, action=argparse.BooleanOptionalAction)
     args = parser.parse_args(sys.argv[1:])
 
     config_path = args.config_path
@@ -217,4 +224,5 @@ if __name__ == "__main__":
         config_path = Path(config_path)
 
     app.config.config_path = config_path
+    app.config.accept_all = args.accept_all
     app.run(single_process=False, dev=False, motd=False, host=args.host, port=args.port)
