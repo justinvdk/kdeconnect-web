@@ -1,0 +1,10 @@
+version: '3.4'
+
+services:
+  app:
+    build:
+      context: '.'
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    volumes:
+      - /data/services/kdeconnect-web/data:/data
